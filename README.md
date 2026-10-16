@@ -53,7 +53,7 @@ Cada tool valida os argumentos com Zod antes de chamar a SerpApi (por exemplo, c
 ## Instalação
 
 ```bash
-git clone https://github.com/SEU_USUARIO/google-shopping.git
+git clone https://github.com/renatonva/google-shopping.git
 cd google-shopping
 
 # Instala as dependências exatamente como estão no package-lock.json
