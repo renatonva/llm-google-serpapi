@@ -37,10 +37,11 @@ export const config: ModelConfig = {
     // 'mistralai/mistral-small-3.1-24b-instruct:free',
     // 'qwen/qwen3-coder-next',
     'openai/gpt-oss-120b',
+    //'nvidia/nemotron-3-super-120b-a12b:free',
   ],
   provider: {
     sort: {
-      by: 'throughput', // Route to model with highest throughput (fastest response)
+      by: 'throughput', 
       partition: 'none',
     },
   },

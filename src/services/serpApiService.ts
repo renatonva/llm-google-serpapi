@@ -168,6 +168,78 @@ export type HotelSearchResult = {
   timestamp: string;
 };
 
+// ---------------------------------------------------------------------------
+// Maps
+// ---------------------------------------------------------------------------
+
+export type MapsSearchParams = {
+  query: string; // endereço completo ou "categoria + local"
+  latitude?: number;
+  longitude?: number;
+  zoom?: number; // 3 (país) ... 14 (bairro) ... 21 (rua)
+  limit?: number;
+};
+
+export type MapsPlace = {
+  name: string;
+  placeId?: string;
+  dataId?: string; // usado para buscar avaliações depois
+  address?: string;
+  phone?: string;
+  website?: string;
+  type?: string;
+  types?: string[];
+  rating?: number;
+  reviews?: number;
+  price?: string;
+  openState?: string;
+  hours?: unknown;
+  latitude?: number;
+  longitude?: number;
+  description?: string;
+};
+
+export type MapsSearchResult = {
+  query: string;
+  total: number;
+  places: MapsPlace[];
+  note?: string;
+  timestamp: string;
+};
+
+export type MapsPlaceDetailsResult = {
+  placeId: string;
+  place: MapsPlace | null;
+  note?: string;
+  timestamp: string;
+};
+
+export type MapsPhotosParams = {
+  dataId: string; // vem do searchGoogleMaps
+  categoryId?: string; // id de uma das categories retornadas
+  limit?: number;
+};
+
+export type MapsPhoto = {
+  title?: string;
+  image: string; // URL em resolução maior
+  thumbnail?: string;
+};
+
+export type MapsPhotoCategory = {
+  id: string;
+  title: string;
+};
+
+export type MapsPhotosResult = {
+  dataId: string;
+  total: number;
+  photos: MapsPhoto[];
+  categories: MapsPhotoCategory[];
+  note?: string;
+  timestamp: string;
+};
+
 //TTL - Time To Live (Manteve os 3600000 do config.ts)
 /*O que é o cache e para que serve.
  Cada busca na SerpApi consome créditos do seu plano. 
@@ -551,6 +623,195 @@ export class SerpAPIService {
         amenities: Array.isArray(property.amenities) ? property.amenities.slice(0, 6) : undefined,
       }))
       .sort((a: HotelOption, b: HotelOption) => a.ratePerNight - b.ratePerNight);
+  }
+
+    // -------------------------------------------------------------------------
+  // Maps
+  // -------------------------------------------------------------------------
+
+  async searchGoogleMaps(params: MapsSearchParams): Promise<MapsSearchResult> {
+    const { query, limit = 5 } = params;
+    console.log('📍 Searching Google Maps:', query);
+
+    if (this.config.disabled) {
+      console.warn('⚠️  SerpAPIService is disabled. No fixture for maps.');
+      return {
+        query,
+        total: 0,
+        places: [],
+        note: 'SerpAPIService is disabled (no fixture available for maps).',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const places = await this.cached(
+      `maps:${JSON.stringify({ ...params, limit: undefined })}`,
+      async () => this.parseMapsPlaces(await this.fetchMapsData(params)),
+    );
+
+    return {
+      query,
+      total: places.length,
+      places: places.slice(0, limit),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async getGoogleMapsPlaceDetails(placeId: string): Promise<MapsPlaceDetailsResult> {
+    console.log('📍 Fetching Google Maps place details:', placeId);
+
+    if (this.config.disabled) {
+      return {
+        placeId,
+        place: null,
+        note: 'SerpAPIService is disabled (no fixture available for maps).',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const place = await this.cached(`maps-place:${placeId}`, async () => {
+      const data = await this.fetchMapsPlaceData(placeId);
+      return this.parseMapsPlaces(data)[0] ?? null;
+    });
+
+    return { placeId, place, timestamp: new Date().toISOString() };
+  }
+
+  private async fetchMapsData(params: MapsSearchParams): Promise<any> {
+    const { query, latitude, longitude, zoom = 14 } = params;
+
+    return getJson({
+      engine: 'google_maps',
+      type: 'search',
+      q: query,
+      google_domain: 'google.com.br',
+      gl: 'br',
+      hl: 'pt-br',
+      ...(latitude !== undefined &&
+        longitude !== undefined && { ll: `@${latitude},${longitude},${zoom}z` }),
+      api_key: this.config.apiKey,
+    });
+  }
+
+  private async fetchMapsPlaceData(placeId: string): Promise<any> {
+    return getJson({
+      engine: 'google_maps',
+      type: 'place',
+      place_id: placeId,
+      google_domain: 'google.com.br',
+      gl: 'br',
+      hl: 'pt-br',
+      api_key: this.config.apiKey,
+    });
+  }
+
+  private parseMapsPlaces(data: any): MapsPlace[] {
+    if (data?.error) {
+      // "Google Maps hasn't returned any results" não é falha real: devolve lista vazia
+      if (/hasn't returned any results/i.test(data.error)) return [];
+      throw new Error(`SerpAPI error: ${data.error}`);
+    }
+
+    // Endereço/lugar exato => place_results (objeto único).
+    // Busca genérica => local_results (lista).
+    const raw: any[] = data?.place_results ? [data.place_results] : (data?.local_results ?? []);
+
+    return raw
+      .filter((item: any) => item?.title)
+      .map((item: any): MapsPlace => ({
+        name: item.title,
+        placeId: item.place_id,
+        dataId: item.data_id,
+        address: item.address,
+        phone: item.phone,
+        website: item.website,
+        type: item.type,
+        types: item.types,
+        rating: item.rating,
+        reviews: item.reviews,
+        price: item.price,
+        openState: item.open_state,
+        hours: item.operating_hours ?? item.hours,
+        latitude: item.gps_coordinates?.latitude,
+        longitude: item.gps_coordinates?.longitude,
+        description: item.description,
+      }));
+  }
+
+    async getGoogleMapsPhotos(params: MapsPhotosParams): Promise<MapsPhotosResult> {
+    const { dataId, limit = 6 } = params;
+    console.log('📷 Fetching Google Maps photos:', dataId, params.categoryId ?? '(all)');
+
+    if (this.config.disabled) {
+      console.warn('⚠️  SerpAPIService is disabled. No fixture for maps photos.');
+      return {
+        dataId,
+        total: 0,
+        photos: [],
+        categories: [],
+        note: 'SerpAPIService is disabled (no fixture available for maps photos).',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const parsed = await this.cached(
+      `maps-photos:${JSON.stringify({ ...params, limit: undefined })}`,
+      async () => this.parseMapsPhotos(await this.fetchMapsPhotosData(params)),
+    );
+
+    return {
+      dataId,
+      total: parsed.photos.length,
+      photos: parsed.photos.slice(0, limit),
+      categories: parsed.categories,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private async fetchMapsPhotosData(params: MapsPhotosParams): Promise<any> {
+    const { dataId, categoryId } = params;
+
+    return getJson({
+      engine: 'google_maps_photos',
+      data_id: dataId,
+      hl: 'pt-br',
+      ...(categoryId && { category_id: categoryId }),
+      api_key: this.config.apiKey,
+    });
+  }
+
+  private parseMapsPhotos(data: any): {
+    photos: MapsPhoto[];
+    categories: MapsPhotoCategory[];
+  } {
+    if (data?.error) {
+      if (/hasn't returned any results/i.test(data.error)) {
+        return { photos: [], categories: [] };
+      }
+      throw new Error(`SerpAPI error: ${data.error}`);
+    }
+
+    const seen = new Set<string>();
+
+    const photos = (data?.photos ?? [])
+      .filter((item: any) => item?.image || item?.thumbnail)
+      .map((item: any): MapsPhoto => ({
+        title: item.title,
+        image: item.image ?? item.thumbnail,
+        thumbnail: item.thumbnail,
+      }))
+      // remove duplicatas
+      .filter((photo: MapsPhoto) => {
+        if (seen.has(photo.image)) return false;
+        seen.add(photo.image);
+        return true;
+      });
+
+    const categories = (data?.categories ?? [])
+      .filter((c: any) => c?.id && c?.title)
+      .map((c: any): MapsPhotoCategory => ({ id: c.id, title: c.title }));
+
+    return { photos, categories };
   }
 
   // -------------------------------------------------------------------------

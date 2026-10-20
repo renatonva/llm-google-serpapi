@@ -4,6 +4,7 @@ import { config } from '../config.ts';
 import { createGoogleShoppingTool } from '../tools/googleShoppingTool.ts';
 import { createGoogleFlightsTool } from '../tools/googleFlightsTool.ts';
 import { createGoogleHotelsTool } from '../tools/googleHotelsTool.ts';
+import { createGoogleMapsTool, createGoogleMapsPlaceDetailsTool, createGoogleMapsPhotosTool } from '../tools/googleMapsTool.ts';
 
 export const getMCPTools = async () => {
   const mcpClient = new MultiServerMCPClient({
@@ -26,5 +27,8 @@ export const getMCPTools = async () => {
     createGoogleShoppingTool(serpAPIService), // produtos / menor preço
     createGoogleFlightsTool(serpAPIService), // passagens aéreas
     createGoogleHotelsTool(serpAPIService), // hospedagem
+    createGoogleMapsTool(serpAPIService), // Endereços (Maps)
+    createGoogleMapsPlaceDetailsTool(serpAPIService),
+    createGoogleMapsPhotosTool(serpAPIService),
   ];
 };
